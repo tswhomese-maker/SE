@@ -2,34 +2,36 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>條碼比對小工具 2026</title>
-    <!-- 加載 html5-qrcode 函式庫 -->
-    <script src="https://unpkg.com"></script>
+    <script src="https://unpkg.com/html5-qrcode/html5-qrcode.min.js"></script>
     <style>
         :root { --primary: #007bff; --success: #28a745; --error: #dc3545; }
-        body { font-family: -apple-system, sans-serif; text-align: center; background-color: #f8f9fa; padding: 10px; margin: 0; }
-        h2 { color: #333; margin: 15px 0; }
-        #reader { width: 100%; max-width: 500px; margin: auto; border-radius: 12px; overflow: hidden; background: #000; }
-        .info { background: white; padding: 20px; border-radius: 12px; margin: 15px auto; max-width: 460px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); transition: 0.3s; }
-        .code-box { font-family: monospace; font-size: 1.1em; padding: 10px; border: 1px dashed #ccc; margin: 10px 0; border-radius: 5px; word-break: break-all; min-height: 1.2em; }
-        .success { border: 3px solid var(--success); background-color: #e6ffed; }
-        .error { border: 3px solid var(--error); background-color: #fff5f5; }
-        #msg { font-size: 1.2em; font-weight: bold; margin-bottom: 10px; }
-        button { width: 100%; padding: 12px; font-size: 1.1em; cursor: pointer; border-radius: 8px; border: none; background: var(--primary); color: white; transition: 0.2s; margin-top: 10px; }
+        body { font-family: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; text-align: center; background-color: #f8f9fa; padding: 10px; margin: 0; }
+        h2 { color: #333; margin: 15px 0; font-size: 1.4em; }
+        #reader { width: 100%; max-width: 500px; margin: auto; border-radius: 12px; overflow: hidden; background: #000; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+        .info { background: white; padding: 20px; border-radius: 12px; margin: 15px auto; max-width: 460px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        .code-box { font-family: 'Courier New', monospace; font-size: 1.1em; padding: 12px; border: 2px dashed #ccc; margin: 10px 0; border-radius: 8px; word-break: break-all; min-height: 1.5em; background: #fff; }
+        .success { border: 3px solid var(--success) !important; background-color: #e6ffed !important; }
+        .error { border: 3px solid var(--error) !important; background-color: #fff5f5 !important; }
+        #msg { font-size: 1.2em; font-weight: bold; margin-bottom: 10px; color: var(--primary); }
+        button { width: 100%; padding: 15px; font-size: 1.1em; cursor: pointer; border-radius: 8px; border: none; background: var(--primary); color: white; font-weight: bold; margin-top: 10px; }
         button:active { opacity: 0.8; transform: scale(0.98); }
+        /* 隱藏套件內建的檔案上傳按鈕，保持介面簡潔 */
+        #reader__dashboard_section_csr button { padding: 5px 10px; font-size: 0.8em; }
     </style>
 </head>
 <body>
 
     <h2>條碼雙重比對器</h2>
+    
     <div id="reader"></div>
 
     <div class="info" id="status-area">
-        <div id="msg">請掃描【第一個】條碼</div>
+        <div id="msg">請點擊下方按鈕啟動相機</div>
         <div class="code-box" id="display1">條碼 1: 待掃描</div>
         <div class="code-box" id="display2">條碼 2: 待掃描</div>
-        <button onclick="resetApp()">重新開始</button>
+        <button onclick="resetApp()">重新開始 / 啟動掃描</button>
     </div>
 
     <script>
@@ -40,7 +42,7 @@
         const d2 = document.getElementById('display2');
         const statusArea = document.getElementById('status-area');
 
-        // 音頻處理 (用於比對成功或失敗的提示)
+        // 音頻處理
         let audioCtx;
         function initAudio() {
             if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -48,6 +50,7 @@
 
         function playSound(isSuccess) {
             initAudio();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
             const osc = audioCtx.createOscillator();
             const gain = audioCtx.createGain();
             osc.connect(gain);
@@ -68,15 +71,21 @@
         }
 
         function onScanSuccess(decodedText) {
+            // 避免重複掃描相同內容
+            if (decodedText === code1 && !code2) return;
+
             if (!code1) {
                 code1 = decodedText;
                 d1.innerText = "條碼 1: " + code1;
-                d1.style.borderColor = "var(--primary)";
-                msg.innerText = "請掃描【第二個】條碼";
+                d1.classList.add("success");
+                msg.innerText = "✅ 已讀取條碼 1，請掃描【第二個】";
+                playSound(true);
                 
-                // 暫停掃描 1.5 秒，給使用者時間移動到下一個條碼
+                // 暫停一下再繼續，避免連續誤掃
                 html5QrcodeScanner.pause(true);
-                setTimeout(() => html5QrcodeScanner.resume(), 1500);
+                setTimeout(() => {
+                    if(!code2) html5QrcodeScanner.resume();
+                }, 2000);
                 
             } else if (!code2) {
                 code2 = decodedText;
@@ -87,12 +96,14 @@
 
         function compare() {
             if (code1 === code2) {
-                msg.innerText = "✅ 比對成功！內容相同";
+                msg.innerText = "🎉 比對成功！內容完全一致";
                 statusArea.className = "info success";
+                d2.classList.add("success");
                 playSound(true);
             } else {
-                msg.innerText = "❌ 比對失敗！內容不同";
+                msg.innerText = "❌ 比對失敗！內容不符";
                 statusArea.className = "info error";
+                d2.classList.add("error");
                 playSound(false);
             }
             html5QrcodeScanner.pause(true); 
@@ -101,39 +112,31 @@
         function resetApp() {
             code1 = ""; code2 = "";
             d1.innerText = "條碼 1: 待掃描"; d2.innerText = "條碼 2: 待掃描";
-            d1.style.borderColor = "#ccc";
+            d1.className = "code-box"; d2.className = "code-box";
             msg.innerText = "請掃描【第一個】條碼";
             statusArea.className = "info";
-            html5QrcodeScanner.resume();
+            try {
+                html5QrcodeScanner.resume();
+            } catch (e) {
+                // 如果尚未初始化則重新渲染
+                html5QrcodeScanner.render(onScanSuccess);
+            }
         }
 
-        // 初始化掃描器：強制後置鏡頭配置
+        // 初始化掃描器
         const html5QrcodeScanner = new Html5QrcodeScanner("reader", { 
-            fps: 15, 
-            qrbox: { width: 250, height: 150 }, // 適合一維與二維條碼的長寬比
+            fps: 10, 
+            qrbox: { width: 280, height: 180 }, 
             aspectRatio: 1.0,
             rememberLastUsedCamera: true,
-            // 2026 年強制後置鏡頭的設定
-            videoConstraints: {
-                facingMode: { ideal: "environment" } 
-            },
-            // 支援常見的條碼格式
-            formatsToSupport: [ 
-                Html5QrcodeSupportedFormats.QR_CODE,
-                Html5QrcodeSupportedFormats.EAN_13,
-                Html5QrcodeSupportedFormats.EAN_8,
-                Html5QrcodeSupportedFormats.CODE_128,
-                Html5QrcodeSupportedFormats.CODE_39,
-                Html5QrcodeSupportedFormats.UPC_A,
-                Html5QrcodeSupportedFormats.UPC_E
-            ]
+            supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA]
         });
 
-        // 啟動掃描
+        // 啟動
         html5QrcodeScanner.render(onScanSuccess);
 
-        // 初次點擊頁面時初始化音頻（解決瀏覽器自動播放限制）
-        document.body.addEventListener('click', initAudio, { once: true });
+        // 處理瀏覽器音效解鎖
+        document.body.addEventListener('touchstart', initAudio, { once: true });
     </script>
 </body>
 </html>
