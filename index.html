@@ -9,87 +9,353 @@
         :root { --primary: #007bff; --success: #28a745; --error: #dc3545; }
         body { font-family: -apple-system, sans-serif; text-align: center; background-color: #f8f9fa; padding: 10px; margin: 0; }
         h2 { color: #333; margin: 15px 0; }
-        #reader { width: 100%; max-width: 500px; margin: auto; border-radius: 12px; overflow: hidden; background: #000; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+        #reader { 
+            width: 100%; 
+            max-width: 500px; 
+            margin: auto; 
+            border-radius: 12px; 
+            overflow: hidden; 
+            background: #000; 
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            transition: border 0.3s;
+        }
         .info { background: white; padding: 20px; border-radius: 12px; margin: 15px auto; max-width: 460px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-        .code-box { font-family: monospace; font-size: 1.2em; padding: 12px; border: 2px dashed #ccc; margin: 10px 0; border-radius: 8px; word-break: break-all; min-height: 1.5em; }
+        .code-box { 
+            font-family: 'Courier New', monospace; 
+            font-size: 1.1em; 
+            padding: 12px; 
+            border: 2px solid #ddd; 
+            margin: 10px 0; 
+            border-radius: 8px; 
+            word-break: break-all; 
+            min-height: 1.5em;
+            background: #f8f9fa;
+            transition: all 0.3s;
+        }
         .active-scan { border-color: var(--primary); background-color: #f0f7ff; }
         .success { border: 3px solid var(--success) !important; background-color: #e6ffed !important; }
         .error { border: 3px solid var(--error) !important; background-color: #fff5f5 !important; }
-        #msg { font-size: 1.2em; font-weight: bold; margin-bottom: 10px; color: var(--primary); }
-        button { width: 100%; padding: 15px; font-size: 1.1em; cursor: pointer; border-radius: 8px; border: none; background: var(--primary); color: white; font-weight: bold; }
+        .scanning { border: 3px solid #ffc107 !important; }
+        #msg { font-size: 1.1em; font-weight: bold; margin-bottom: 10px; min-height: 2em; }
+        button { 
+            width: 100%; 
+            padding: 15px; 
+            font-size: 1.1em; 
+            cursor: pointer; 
+            border-radius: 8px; 
+            border: none; 
+            background: var(--primary); 
+            color: white; 
+            font-weight: bold;
+            margin-top: 10px;
+            transition: background 0.3s;
+        }
+        button:hover { background: #0056b3; }
+        .hint { 
+            color: #666; 
+            font-size: 0.9em; 
+            margin-top: 5px;
+            text-align: left;
+        }
     </style>
 </head>
 <body>
 
-    <h2>條碼雙重比對 (Code 39)</h2>
+    <h2>條碼雙重比對 (Code 39 專用)</h2>
     <div id="reader"></div>
 
     <div class="info" id="status-area">
-        <div id="msg">等待啟動相機...</div>
-        <div class="code-box" id="display1">條碼 1: 待掃描</div>
-        <div class="code-box" id="display2">條碼 2: 待掃描</div>
-        <button onclick="resetApp()">重新開始</button>
+        <div id="msg">請掃描第一個 Code 39 條碼</div>
+        <div class="hint">• 確保光線充足</div>
+        <div class="hint">• 對準條碼並保持穩定</div>
+        
+        <div style="margin: 20px 0;">
+            <div class="code-box" id="display1">第一個條碼: 等待掃描...</div>
+            <div class="hint" id="hint1">掃描狀態: 未開始</div>
+        </div>
+        
+        <div style="margin: 20px 0;">
+            <div class="code-box" id="display2">第二個條碼: 等待掃描...</div>
+            <div class="hint" id="hint2">掃描狀態: 未開始</div>
+        </div>
+        
+        <button onclick="resetApp()">重新開始比對</button>
     </div>
 
     <script>
         let code1 = "";
         let code2 = "";
+        let lastScannedTime = 0;
+        const SCAN_DELAY = 1000; // 1秒內不重複掃描
         const msg = document.getElementById('msg');
         const d1 = document.getElementById('display1');
         const d2 = document.getElementById('display2');
+        const hint1 = document.getElementById('hint1');
+        const hint2 = document.getElementById('hint2');
         const statusArea = document.getElementById('status-area');
 
-        function onScanSuccess(decodedText) {
-            // 自動過濾 Excel 產生的啟始與結束星號 *
-            let cleanText = decodedText.replace(/^\*|\*$/g, "");
-
-            if (!code1) {
-                code1 = cleanText;
-                d1.innerText = "條碼 1: " + code1;
-                d1.classList.add("success");
-                msg.innerText = "✅ 第一組成功，請掃第二組";
-                
-                // 暫停 2 秒防止重複讀取同一條碼
-                html5QrcodeScanner.pause(true);
-                setTimeout(() => { if(!code2) html5QrcodeScanner.resume(); }, 2000);
-            } else if (!code2) {
-                code2 = cleanText;
-                d2.innerText = "條碼 2: " + code2;
-                compare();
+        // Code 39 格式驗證
+        function validateCode39(text) {
+            if (!text || text.trim() === '') return false;
+            
+            // Code 39 允許的字元: A-Z, 0-9, -, ., $, /, +, %, 空格
+            const code39Regex = /^[A-Z0-9\-\.\ \$\+\/%]*$/;
+            
+            // 長度檢查 (Code 39 通常 1-43 個字元)
+            if (text.length < 1 || text.length > 43) {
+                return false;
             }
+            
+            return code39Regex.test(text);
+        }
+
+        // 播放提示音
+        function playScanSound(success = true) {
+            try {
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                
+                // 成功音調較高，失敗音調較低
+                oscillator.frequency.value = success ? 1000 : 400;
+                oscillator.type = 'sine';
+                
+                gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+                
+                oscillator.start(audioContext.currentTime);
+                oscillator.stop(audioContext.currentTime + 0.3);
+            } catch (e) {
+                console.log("音效播放失敗:", e);
+            }
+        }
+
+        // 視覺反饋
+        function showVisualFeedback(element, type = 'scanning') {
+            element.classList.remove('scanning', 'success', 'error');
+            element.classList.add(type);
+            
+            // 手機振動反饋
+            if (navigator.vibrate) {
+                if (type === 'success') {
+                    navigator.vibrate([100, 50, 100]);
+                } else if (type === 'error') {
+                    navigator.vibrate([200]);
+                }
+            }
+        }
+
+        function onScanSuccess(decodedText, decodedResult) {
+            const now = Date.now();
+            
+            // 防抖動：防止短時間內重複掃描
+            if (now - lastScannedTime < SCAN_DELAY) {
+                return;
+            }
+            lastScannedTime = now;
+            
+            // 過濾星號
+            let cleanText = decodedText.replace(/^\*|\*$/g, "");
+            console.log("原始掃描:", decodedText, "處理後:", cleanText);
+            
+            // 暫停掃描器
+            html5QrcodeScanner.pause(true);
+            
+            // 驗證條碼格式
+            if (!validateCode39(cleanText)) {
+                msg.innerText = "❌ 格式錯誤！請掃描 Code 39 條碼";
+                msg.style.color = "var(--error)";
+                playScanSound(false);
+                
+                if (!code1) {
+                    showVisualFeedback(d1, 'error');
+                    hint1.textContent = "掃描失敗: 非 Code 39 格式";
+                } else {
+                    showVisualFeedback(d2, 'error');
+                    hint2.textContent = "掃描失敗: 非 Code 39 格式";
+                }
+                
+                setTimeout(() => {
+                    msg.style.color = "";
+                    html5QrcodeScanner.resume();
+                }, 1500);
+                return;
+            }
+            
+            // 播放成功音效
+            playScanSound(true);
+            
+            if (!code1) {
+                // 掃描第一個條碼
+                code1 = cleanText;
+                d1.innerText = `第一個條碼: ${code1}`;
+                showVisualFeedback(d1, 'success');
+                hint1.textContent = `掃描成功: ${new Date().toLocaleTimeString()}`;
+                
+                msg.innerText = "✅ 第一個條碼已掃描，請掃描第二個條碼";
+                msg.style.color = "var(--primary)";
+                
+                // 1.5秒後恢復掃描
+                setTimeout(() => {
+                    if (!code2) {
+                        html5QrcodeScanner.resume();
+                        d2.classList.add('scanning');
+                        hint2.textContent = "準備掃描中...";
+                    }
+                }, 1500);
+                
+            } else if (!code2) {
+                // 掃描第二個條碼
+                code2 = cleanText;
+                d2.innerText = `第二個條碼: ${code2}`;
+                showVisualFeedback(d2, 'success');
+                hint2.textContent = `掃描成功: ${new Date().toLocaleTimeString()}`;
+                
+                // 進行比對
+                setTimeout(() => {
+                    compare();
+                }, 500);
+            }
+        }
+
+        function onScanFailure(error) {
+            // 掃描失敗的處理
+            console.warn(`掃描錯誤: ${error}`);
+            // 可以選擇性地顯示錯誤訊息
         }
 
         function compare() {
             if (code1 === code2) {
-                msg.innerText = "🎉 比對成功！內容一致";
-                statusArea.className = "info success";
-                d2.classList.add("success");
+                msg.innerText = "🎉 比對成功！兩個條碼內容完全一致";
+                msg.style.color = "var(--success)";
+                statusArea.classList.add("success");
+                
+                // 播放特別的成功音效
+                try {
+                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    const oscillator = audioContext.createOscillator();
+                    const gainNode = audioContext.createGain();
+                    
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioContext.destination);
+                    
+                    // 成功旋律
+                    oscillator.frequency.setValueAtTime(523.25, audioContext.currentTime); // C5
+                    oscillator.frequency.setValueAtTime(659.25, audioContext.currentTime + 0.1); // E5
+                    oscillator.frequency.setValueAtTime(783.99, audioContext.currentTime + 0.2); // G5
+                    
+                    oscillator.type = 'sine';
+                    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+                    
+                    oscillator.start(audioContext.currentTime);
+                    oscillator.stop(audioContext.currentTime + 0.5);
+                } catch (e) {}
+                
             } else {
-                msg.innerText = "❌ 比對失敗！內容不同";
-                statusArea.className = "info error";
-                d2.classList.add("error");
+                msg.innerText = `❌ 比對失敗！內容不同`;
+                msg.style.color = "var(--error)";
+                statusArea.classList.add("error");
+                
+                // 顯示差異處
+                hint1.textContent += " (與第二個不同)";
+                hint2.textContent += " (與第一個不同)";
             }
-            html5QrcodeScanner.pause(true); 
+            
+            // 完全停止掃描
+            html5QrcodeScanner.pause(true);
         }
 
         function resetApp() {
-            code1 = ""; code2 = "";
-            d1.innerText = "條碼 1: 待掃描"; d2.innerText = "條碼 2: 待掃描";
-            d1.className = "code-box"; d2.className = "code-box";
-            msg.innerText = "請掃描【第一個】條碼";
+            code1 = "";
+            code2 = "";
+            lastScannedTime = 0;
+            
+            d1.innerText = "第一個條碼: 等待掃描...";
+            d2.innerText = "第二個條碼: 等待掃描...";
+            d1.className = "code-box";
+            d2.className = "code-box";
+            
+            hint1.textContent = "掃描狀態: 未開始";
+            hint2.textContent = "掃描狀態: 未開始";
+            
+            msg.innerText = "請掃描第一個 Code 39 條碼";
+            msg.style.color = "";
             statusArea.className = "info";
-            try { html5QrcodeScanner.resume(); } catch (e) { html5QrcodeScanner.render(onScanSuccess); }
+            
+            // 重新啟動掃描器
+            try {
+                html5QrcodeScanner.resume();
+                d1.classList.add('scanning');
+                hint1.textContent = "準備掃描中...";
+            } catch (e) {
+                console.log("重新啟動掃描器");
+            }
         }
 
+        // 初始化掃描器
         const html5QrcodeScanner = new Html5QrcodeScanner("reader", { 
-            fps: 20, 
-            qrbox: { width: 350, height: 120 }, // 針對長條碼調整掃描範圍
-            aspectRatio: 1.0,
-            // 關鍵優化：指定只讀取 Code 39 格式
-            formatsToSupport: [ Html5QrcodeSupportedFormats.CODE_39 ]
+            fps: 30,
+            qrbox: { width: 350, height: 150 },
+            aspectRatio: 4/3,
+            formatsToSupport: [ Html5QrcodeSupportedFormats.CODE_39 ],
+            disableFlip: false,
+            showTorchButtonIfSupported: true,  // 顯示手電筒按鈕
+            showZoomSliderIfSupported: true,   // 顯示縮放滑桿
         });
 
-        html5QrcodeScanner.render(onScanSuccess);
+        // 開始掃描
+        html5QrcodeScanner.render(onScanSuccess, onScanFailure);
+        
+        // 初始狀態
+        d1.classList.add('scanning');
+        hint1.textContent = "準備掃描中...";
+        
+        // 添加相機選擇功能
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(() => {
+                const cameraSelect = document.createElement('select');
+                cameraSelect.id = 'camera-select';
+                cameraSelect.style.margin = '10px 0';
+                cameraSelect.style.padding = '5px';
+                
+                const defaultOption = document.createElement('option');
+                defaultOption.text = '選擇相機...';
+                cameraSelect.add(defaultOption);
+                
+                document.querySelector('.info').prepend(cameraSelect);
+                
+                // 獲取相機列表
+                Html5Qrcode.getCameras().then(cameras => {
+                    if (cameras && cameras.length) {
+                        cameras.forEach(camera => {
+                            const option = document.createElement('option');
+                            option.value = camera.id;
+                            option.text = camera.label || camera.id;
+                            cameraSelect.add(option);
+                        });
+                        
+                        cameraSelect.onchange = () => {
+                            if (cameraSelect.value) {
+                                html5QrcodeScanner.clear();
+                                html5QrcodeScanner.start(
+                                    cameraSelect.value,
+                                    {
+                                        fps: 30,
+                                        qrbox: { width: 350, height: 150 }
+                                    },
+                                    onScanSuccess,
+                                    onScanFailure
+                                );
+                            }
+                        };
+                    }
+                });
+            }, 1000);
+        });
     </script>
 </body>
 </html>
