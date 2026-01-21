@@ -4,19 +4,19 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>條碼比對小工具 2026</title>
-    <!-- 使用可靠的 CDN 加載 html5-qrcode -->
-    <script src="https://unpkg.com/html5-qrcode"></script>
+    <!-- 加載 html5-qrcode 函式庫 -->
+    <script src="https://unpkg.com"></script>
     <style>
         :root { --primary: #007bff; --success: #28a745; --error: #dc3545; }
         body { font-family: -apple-system, sans-serif; text-align: center; background-color: #f8f9fa; padding: 10px; margin: 0; }
         h2 { color: #333; margin: 15px 0; }
         #reader { width: 100%; max-width: 500px; margin: auto; border-radius: 12px; overflow: hidden; background: #000; }
         .info { background: white; padding: 20px; border-radius: 12px; margin: 15px auto; max-width: 460px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); transition: 0.3s; }
-        .code-box { font-family: monospace; font-size: 1.1em; padding: 10px; border: 1px dashed #ccc; margin: 10px 0; border-radius: 5px; word-break: break-all; }
+        .code-box { font-family: monospace; font-size: 1.1em; padding: 10px; border: 1px dashed #ccc; margin: 10px 0; border-radius: 5px; word-break: break-all; min-height: 1.2em; }
         .success { border: 3px solid var(--success); background-color: #e6ffed; }
         .error { border: 3px solid var(--error); background-color: #fff5f5; }
         #msg { font-size: 1.2em; font-weight: bold; margin-bottom: 10px; }
-        button { width: 100%; padding: 12px; font-size: 1.1em; cursor: pointer; border-radius: 8px; border: none; background: var(--primary); color: white; transition: 0.2s; }
+        button { width: 100%; padding: 12px; font-size: 1.1em; cursor: pointer; border-radius: 8px; border: none; background: var(--primary); color: white; transition: 0.2s; margin-top: 10px; }
         button:active { opacity: 0.8; transform: scale(0.98); }
     </style>
 </head>
@@ -40,9 +40,14 @@
         const d2 = document.getElementById('display2');
         const statusArea = document.getElementById('status-area');
 
-        // 音頻處理
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        // 音頻處理 (用於比對成功或失敗的提示)
+        let audioCtx;
+        function initAudio() {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+
         function playSound(isSuccess) {
+            initAudio();
             const osc = audioCtx.createOscillator();
             const gain = audioCtx.createGain();
             osc.connect(gain);
@@ -69,7 +74,7 @@
                 d1.style.borderColor = "var(--primary)";
                 msg.innerText = "請掃描【第二個】條碼";
                 
-                // 暫停掃描並延遲恢復，防止同一條碼重複觸發
+                // 暫停掃描 1.5 秒，給使用者時間移動到下一個條碼
                 html5QrcodeScanner.pause(true);
                 setTimeout(() => html5QrcodeScanner.resume(), 1500);
                 
@@ -102,31 +107,33 @@
             html5QrcodeScanner.resume();
         }
 
-        // 初始化掃描器，增加格式支援        const html5QrcodeScanner = new Html5QrcodeScanner("reader", { 
+        // 初始化掃描器：強制後置鏡頭配置
+        const html5QrcodeScanner = new Html5QrcodeScanner("reader", { 
             fps: 15, 
-            qrbox: { width: 250, height: 150 },
+            qrbox: { width: 250, height: 150 }, // 適合一維與二維條碼的長寬比
             aspectRatio: 1.0,
             rememberLastUsedCamera: true,
-            // 關鍵修改：強制要求後置鏡頭 (environment)
+            // 2026 年強制後置鏡頭的設定
             videoConstraints: {
-                facingMode: { exact: "environment" }
+                facingMode: { ideal: "environment" } 
             },
+            // 支援常見的條碼格式
             formatsToSupport: [ 
                 Html5QrcodeSupportedFormats.QR_CODE,
                 Html5QrcodeSupportedFormats.EAN_13,
+                Html5QrcodeSupportedFormats.EAN_8,
                 Html5QrcodeSupportedFormats.CODE_128,
-                Html5QrcodeSupportedFormats.CODE_39 
+                Html5QrcodeSupportedFormats.CODE_39,
+                Html5QrcodeSupportedFormats.UPC_A,
+                Html5QrcodeSupportedFormats.UPC_E
             ]
         });
-        
-        // 成功渲染
-        html5QrcodeScanner.render(onScanSuccess, onScanFailure);
 
-        // 增加一個選配的錯誤回饋，避免鏡頭啟動失敗沒反應
-        function onScanFailure(error) {
-            // 掃描失敗通常不處理，避免頻繁報錯
-        }
+        // 啟動掃描
+        html5QrcodeScanner.render(onScanSuccess);
+
+        // 初次點擊頁面時初始化音頻（解決瀏覽器自動播放限制）
+        document.body.addEventListener('click', initAudio, { once: true });
     </script>
 </body>
 </html>
-
