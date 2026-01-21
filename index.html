@@ -3,35 +3,32 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>條碼比對小工具 2026</title>
+    <title>條碼比對小工具 - Code 39 專用</title>
     <script src="https://unpkg.com/html5-qrcode/html5-qrcode.min.js"></script>
     <style>
         :root { --primary: #007bff; --success: #28a745; --error: #dc3545; }
-        body { font-family: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; text-align: center; background-color: #f8f9fa; padding: 10px; margin: 0; }
-        h2 { color: #333; margin: 15px 0; font-size: 1.4em; }
-        #reader { width: 100%; max-width: 500px; margin: auto; border-radius: 12px; overflow: hidden; background: #000; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+        body { font-family: -apple-system, sans-serif; text-align: center; background-color: #f8f9fa; padding: 10px; margin: 0; }
+        h2 { color: #333; margin: 15px 0; }
+        #reader { width: 100%; max-width: 500px; margin: auto; border-radius: 12px; overflow: hidden; background: #000; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
         .info { background: white; padding: 20px; border-radius: 12px; margin: 15px auto; max-width: 460px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-        .code-box { font-family: 'Courier New', monospace; font-size: 1.1em; padding: 12px; border: 2px dashed #ccc; margin: 10px 0; border-radius: 8px; word-break: break-all; min-height: 1.5em; background: #fff; }
+        .code-box { font-family: monospace; font-size: 1.2em; padding: 12px; border: 2px dashed #ccc; margin: 10px 0; border-radius: 8px; word-break: break-all; min-height: 1.5em; }
+        .active-scan { border-color: var(--primary); background-color: #f0f7ff; }
         .success { border: 3px solid var(--success) !important; background-color: #e6ffed !important; }
         .error { border: 3px solid var(--error) !important; background-color: #fff5f5 !important; }
         #msg { font-size: 1.2em; font-weight: bold; margin-bottom: 10px; color: var(--primary); }
-        button { width: 100%; padding: 15px; font-size: 1.1em; cursor: pointer; border-radius: 8px; border: none; background: var(--primary); color: white; font-weight: bold; margin-top: 10px; }
-        button:active { opacity: 0.8; transform: scale(0.98); }
-        /* 隱藏套件內建的檔案上傳按鈕，保持介面簡潔 */
-        #reader__dashboard_section_csr button { padding: 5px 10px; font-size: 0.8em; }
+        button { width: 100%; padding: 15px; font-size: 1.1em; cursor: pointer; border-radius: 8px; border: none; background: var(--primary); color: white; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <h2>條碼雙重比對器</h2>
-    
+    <h2>條碼雙重比對 (Code 39)</h2>
     <div id="reader"></div>
 
     <div class="info" id="status-area">
-        <div id="msg">請點擊下方按鈕啟動相機</div>
+        <div id="msg">等待啟動相機...</div>
         <div class="code-box" id="display1">條碼 1: 待掃描</div>
         <div class="code-box" id="display2">條碼 2: 待掃描</div>
-        <button onclick="resetApp()">重新開始 / 啟動掃描</button>
+        <button onclick="resetApp()">重新開始</button>
     </div>
 
     <script>
@@ -42,53 +39,21 @@
         const d2 = document.getElementById('display2');
         const statusArea = document.getElementById('status-area');
 
-        // 音頻處理
-        let audioCtx;
-        function initAudio() {
-            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        }
-
-        function playSound(isSuccess) {
-            initAudio();
-            if (audioCtx.state === 'suspended') audioCtx.resume();
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.connect(gain);
-            gain.connect(audioCtx.destination);
-            
-            if (isSuccess) {
-                osc.frequency.setValueAtTime(880, audioCtx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
-                osc.start();
-                osc.stop(audioCtx.currentTime + 0.5);
-            } else {
-                osc.type = 'sawtooth';
-                osc.frequency.setValueAtTime(110, audioCtx.currentTime);
-                gain.gain.setValueAtTime(0.5, audioCtx.currentTime);
-                osc.start();
-                osc.stop(audioCtx.currentTime + 0.3);
-            }
-        }
-
         function onScanSuccess(decodedText) {
-            // 避免重複掃描相同內容
-            if (decodedText === code1 && !code2) return;
+            // 自動過濾 Excel 產生的啟始與結束星號 *
+            let cleanText = decodedText.replace(/^\*|\*$/g, "");
 
             if (!code1) {
-                code1 = decodedText;
+                code1 = cleanText;
                 d1.innerText = "條碼 1: " + code1;
                 d1.classList.add("success");
-                msg.innerText = "✅ 已讀取條碼 1，請掃描【第二個】";
-                playSound(true);
+                msg.innerText = "✅ 第一組成功，請掃第二組";
                 
-                // 暫停一下再繼續，避免連續誤掃
+                // 暫停 2 秒防止重複讀取同一條碼
                 html5QrcodeScanner.pause(true);
-                setTimeout(() => {
-                    if(!code2) html5QrcodeScanner.resume();
-                }, 2000);
-                
+                setTimeout(() => { if(!code2) html5QrcodeScanner.resume(); }, 2000);
             } else if (!code2) {
-                code2 = decodedText;
+                code2 = cleanText;
                 d2.innerText = "條碼 2: " + code2;
                 compare();
             }
@@ -96,15 +61,13 @@
 
         function compare() {
             if (code1 === code2) {
-                msg.innerText = "🎉 比對成功！內容完全一致";
+                msg.innerText = "🎉 比對成功！內容一致";
                 statusArea.className = "info success";
                 d2.classList.add("success");
-                playSound(true);
             } else {
-                msg.innerText = "❌ 比對失敗！內容不符";
+                msg.innerText = "❌ 比對失敗！內容不同";
                 statusArea.className = "info error";
                 d2.classList.add("error");
-                playSound(false);
             }
             html5QrcodeScanner.pause(true); 
         }
@@ -115,28 +78,18 @@
             d1.className = "code-box"; d2.className = "code-box";
             msg.innerText = "請掃描【第一個】條碼";
             statusArea.className = "info";
-            try {
-                html5QrcodeScanner.resume();
-            } catch (e) {
-                // 如果尚未初始化則重新渲染
-                html5QrcodeScanner.render(onScanSuccess);
-            }
+            try { html5QrcodeScanner.resume(); } catch (e) { html5QrcodeScanner.render(onScanSuccess); }
         }
 
-        // 初始化掃描器
         const html5QrcodeScanner = new Html5QrcodeScanner("reader", { 
-            fps: 10, 
-            qrbox: { width: 280, height: 180 }, 
+            fps: 20, 
+            qrbox: { width: 350, height: 120 }, // 針對長條碼調整掃描範圍
             aspectRatio: 1.0,
-            rememberLastUsedCamera: true,
-            supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA]
+            // 關鍵優化：指定只讀取 Code 39 格式
+            formatsToSupport: [ Html5QrcodeSupportedFormats.CODE_39 ]
         });
 
-        // 啟動
         html5QrcodeScanner.render(onScanSuccess);
-
-        // 處理瀏覽器音效解鎖
-        document.body.addEventListener('touchstart', initAudio, { once: true });
     </script>
 </body>
 </html>
