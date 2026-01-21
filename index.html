@@ -29,7 +29,6 @@
             overflow: hidden;
             display: flex;
             flex-direction: column;
-            padding-bottom: env(safe-area-inset-bottom);
         }
         
         .header {
@@ -56,17 +55,22 @@
         .main-container {
             display: flex;
             flex-direction: column;
-            height: calc(100vh - 160px);
+            flex: 1;
             overflow: hidden;
         }
         
         #reader {
             width: 100%;
-            height: 45vh;
+            height: 40vh;
+            min-height: 300px;
             position: relative;
             background: black;
             flex-shrink: 0;
             overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
         }
         
         #reader video {
@@ -86,9 +90,9 @@
             border-radius: 8px;
             box-shadow: 0 0 0 2000px rgba(0, 0, 0, 0.5);
             pointer-events: none;
+            z-index: 2;
         }
         
-        /* 雙掃描線效果 */
         .scan-line-container {
             position: absolute;
             top: 0;
@@ -106,6 +110,7 @@
             background: var(--scan-line);
             box-shadow: 0 0 10px var(--scan-line), 0 0 20px var(--scan-line);
             animation: scan 2s ease-in-out infinite;
+            z-index: 3;
         }
         
         .scan-line.delayed {
@@ -124,6 +129,7 @@
             height: 20px;
             border-color: var(--scan-line);
             border-width: 3px;
+            z-index: 3;
         }
         
         .corner-tl {
@@ -177,7 +183,7 @@
         
         .scan-controls {
             background: white;
-            padding: 15px 15px calc(15px + env(safe-area-inset-bottom, 15px));
+            padding: 15px;
             border-top: 1px solid #eee;
             display: flex;
             gap: 10px;
@@ -341,6 +347,10 @@
             display: none !important;
         }
         
+        .visible {
+            display: block !important;
+        }
+        
         .loader {
             position: absolute;
             top: 50%;
@@ -350,15 +360,34 @@
             font-weight: bold;
             text-shadow: 0 0 3px black;
             text-align: center;
+            z-index: 1;
         }
         
-        .confidence-indicator {
-            margin-top: 10px;
-            padding: 8px;
-            background: rgba(0, 0, 0, 0.7);
-            border-radius: 4px;
+        .permission-prompt {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.8);
             color: white;
-            font-size: 0.8rem;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            z-index: 100;
+            width: 80%;
+            max-width: 300px;
+        }
+        
+        .permission-prompt button {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            font-size: 1rem;
+            margin-top: 15px;
+            cursor: pointer;
+            width: 100%;
         }
         
         .scan-hint {
@@ -371,6 +400,7 @@
             font-size: 0.9rem;
             text-shadow: 0 0 3px black;
             padding: 0 10px;
+            z-index: 2;
         }
         
         .button-row {
@@ -379,21 +409,39 @@
             width: 100%;
         }
         
-        /* 針對手機底部安全區域的額外間距 */
-        .safe-area-bottom {
-            height: env(safe-area-inset-bottom, 0px);
-            background: white;
+        /* 相機控制按鈕 */
+        .camera-controls {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            display: flex;
+            gap: 10px;
+            z-index: 4;
+        }
+        
+        .camera-switch-btn {
+            background: rgba(0, 0, 0, 0.5);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 1.2rem;
         }
         
         @media (min-width: 768px) {
             .main-container {
                 flex-direction: row;
-                height: calc(100vh - 140px);
             }
             
             #reader {
                 width: 50%;
                 height: 100%;
+                min-height: auto;
             }
             
             .result-container {
@@ -408,13 +456,6 @@
                 width: 50%;
                 right: 0;
             }
-        }
-        
-        /* 防止長按選單出現 */
-        .no-context-menu {
-            -webkit-touch-callout: none;
-            -webkit-user-select: none;
-            user-select: none;
         }
     </style>
 </head>
@@ -436,10 +477,16 @@
                     <div class="scan-line delayed"></div>
                 </div>
             </div>
-            <div class="loader" id="loader">正在啟動相機...</div>
+            <div class="loader" id="loader">準備掃描...</div>
             <div class="scan-hint" id="scan-hint">將條碼置於框內，保持穩定</div>
-            <div class="confidence-indicator hidden" id="confidence-indicator">
-                辨識準確度: <span id="confidence-value">0%</span>
+            <div class="permission-prompt hidden" id="permission-prompt">
+                <p>需要相機權限才能使用掃描功能</p>
+                <button onclick="requestCameraPermission()">允許相機存取</button>
+            </div>
+            <div class="camera-controls">
+                <button class="camera-switch-btn" onclick="switchCamera()" id="camera-switch-btn" style="display: none;">
+                    🔄
+                </button>
             </div>
         </div>
         
@@ -450,7 +497,9 @@
             
             <div class="camera-selector">
                 <label for="camera-select">選擇相機鏡頭：</label>
-                <select id="camera-select"></select>
+                <select id="camera-select">
+                    <option value="">請先允許相機存取</option>
+                </select>
             </div>
             
             <div class="code-display" id="display1">
@@ -492,8 +541,6 @@
             </button>
         </div>
     </div>
-    
-    <div class="safe-area-bottom"></div>
 
     <script>
         // 全局變數
@@ -503,9 +550,9 @@
         let currentScanning = 0;
         let html5QrcodeScanner = null;
         let selectedCameraId = null;
-        let lastScannedCode = "";
-        let lastScanTime = 0;
-        let confidenceHistory = [];
+        let availableCameras = [];
+        let currentCameraIndex = 0;
+        let cameraPermissionGranted = false;
         
         // DOM 元素
         const elements = {
@@ -527,110 +574,92 @@
             cameraSelect: document.getElementById('camera-select'),
             loader: document.getElementById('loader'),
             scanHint: document.getElementById('scan-hint'),
-            confidenceIndicator: document.getElementById('confidence-indicator'),
-            confidenceValue: document.getElementById('confidence-value')
+            permissionPrompt: document.getElementById('permission-prompt'),
+            cameraSwitchBtn: document.getElementById('camera-switch-btn')
         };
         
-        // 初始化相機選擇
-        async function initializeCameraSelector() {
+        // 檢查相機權限
+        async function checkCameraPermission() {
             try {
+                // 嘗試獲取相機列表來檢查權限
                 const cameras = await Html5Qrcode.getCameras();
+                cameraPermissionGranted = true;
+                return true;
+            } catch (error) {
+                console.log("相機權限未授予或無法存取:", error);
+                cameraPermissionGranted = false;
+                return false;
+            }
+        }
+        
+        // 請求相機權限
+        async function requestCameraPermission() {
+            try {
+                elements.permissionPrompt.classList.add('hidden');
+                elements.loader.textContent = "請求相機權限中...";
+                elements.loader.classList.remove('hidden');
                 
-                if (cameras && cameras.length > 0) {
-                    elements.cameraSelect.innerHTML = '';
-                    
-                    // 找出前後鏡頭
-                    let backCamera = null;
-                    let frontCamera = null;
-                    let otherCameras = [];
-                    
-                    cameras.forEach(camera => {
-                        const label = camera.label || `相機 ${cameras.indexOf(camera) + 1}`;
-                        
-                        if (label.toLowerCase().includes('back') || 
-                            label.includes('後置') || 
-                            label.includes('主') ||
-                            label.includes('rear')) {
-                            backCamera = camera;
-                        } else if (label.toLowerCase().includes('front') || 
-                                  label.includes('前置') || 
-                                  label.includes('自拍') ||
-                                  label.includes('face')) {
-                            frontCamera = camera;
-                        } else {
-                            otherCameras.push(camera);
-                        }
-                    });
-                    
-                    // 創建選項
-                    const createOption = (camera, text) => {
-                        const option = document.createElement('option');
-                        option.value = camera.id;
-                        option.text = text;
-                        return option;
-                    };
-                    
-                    // 優先添加後置鏡頭
-                    if (backCamera) {
-                        const label = backCamera.label || '後置鏡頭';
-                        elements.cameraSelect.appendChild(createOption(backCamera, `📷 ${label}`));
-                    }
-                    
-                    // 添加前置鏡頭
-                    if (frontCamera) {
-                        const label = frontCamera.label || '前置鏡頭';
-                        elements.cameraSelect.appendChild(createOption(frontCamera, `🤳 ${label}`));
-                    }
-                    
-                    // 添加其他鏡頭
-                    otherCameras.forEach(camera => {
-                        const label = camera.label || `相機 ${otherCameras.indexOf(camera) + 1}`;
-                        elements.cameraSelect.appendChild(createOption(camera, `📹 ${label}`));
-                    });
-                    
-                    // 預設選擇後置鏡頭，如果沒有則選第一個
-                    if (backCamera) {
-                        elements.cameraSelect.value = backCamera.id;
-                    } else if (cameras.length > 0) {
-                        elements.cameraSelect.value = cameras[0].id;
-                    }
-                    
-                    selectedCameraId = elements.cameraSelect.value;
-                    
-                    // 監聽相機選擇變化
-                    elements.cameraSelect.addEventListener('change', function() {
-                        selectedCameraId = this.value;
-                        if (isScanning) {
-                            stopScanning();
-                            setTimeout(() => {
-                                startScanning(currentScanning);
-                            }, 500);
-                        }
-                    });
-                    
+                // 先嘗試直接啟動一個簡單的視頻流來請求權限
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: 'environment' } 
+                });
+                
+                // 停止流，我們只需要權限
+                stream.getTracks().forEach(track => track.stop());
+                
+                cameraPermissionGranted = true;
+                elements.loader.textContent = "正在載入相機...";
+                
+                // 獲取相機列表
+                await getCameraList();
+                
+                elements.loader.classList.add('hidden');
+                
+            } catch (error) {
+                console.error("相機權限請求失敗:", error);
+                elements.permissionPrompt.classList.remove('hidden');
+                elements.loader.classList.add('hidden');
+                showError("無法取得相機權限，請在瀏覽器設定中允許相機存取");
+            }
+        }
+        
+        // 獲取相機列表
+        async function getCameraList() {
+            try {
+                elements.loader.textContent = "正在取得相機列表...";
+                elements.loader.classList.remove('hidden');
+                
+                availableCameras = await Html5Qrcode.getCameras();
+                
+                if (availableCameras && availableCameras.length > 0) {
+                    updateCameraSelector();
+                    cameraPermissionGranted = true;
+                    elements.loader.classList.add('hidden');
+                    return true;
                 } else {
-                    elements.cameraSelect.innerHTML = '<option value="">未找到相機</option>';
-                    showError("無法找到相機裝置，請確保已授予相機權限");
+                    elements.loader.classList.add('hidden');
+                    showError("未找到可用的相機");
+                    return false;
                 }
             } catch (error) {
                 console.error("獲取相機列表失敗:", error);
-                elements.cameraSelect.innerHTML = '<option value="">無法獲取相機</option>';
-                showError("無法獲取相機列表: " + error.message);
+                elements.loader.classList.add('hidden');
+                showError("無法取得相機列表: " + error.message);
+                return false;
             }
         }
         
-        // 更新狀態訊息
-        function updateStatus(message, type = 'waiting') {
-            elements.statusMsg.textContent = message;
-            elements.statusMsg.className = `status-message status-${type}`;
+        // 更新相機選擇器
+        function updateCameraSelector() {
+            elements.cameraSelect.innerHTML = '';
             
-            // 更新掃描提示
-            if (type === 'scanning') {
-                elements.scanHint.textContent = "將條碼對準掃描框，保持穩定";
-            } else {
-                elements.scanHint.textContent = "將條碼置於框內，保持穩定";
-            }
-        }
-        
-        // 顯示錯誤
-        function sho
+            availableCameras.forEach((camera, index) => {
+                const option = document.createElement('option');
+                option.value = camera.id;
+                
+                // 判斷鏡頭類型
+                let label = camera.label || `相機 ${index + 1}`;
+                let cameraType = 'unknown';
+                
+                // 嘗試識別前後鏡頭
+                co
