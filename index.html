@@ -662,4 +662,438 @@
                 let cameraType = 'unknown';
                 
                 // 嘗試識別前後鏡頭
-                co
+                const lowerLabel = label.toLowerCase();
+                if (lowerLabel.includes('back') || lowerLabel.includes('rear') || 
+                    lowerLabel.includes('環境') || lowerLabel.includes('後')) {
+                    cameraType = 'back';
+                    label = '後置鏡頭 (建議使用)';
+                } else if (lowerLabel.includes('front') || lowerLabel.includes('face') || 
+                          lowerLabel.includes('user') || lowerLabel.includes('前')) {
+                    cameraType = 'front';
+                    label = '前置鏡頭';
+                } else {
+                    label = `相機 ${index + 1}`;
+                }
+                
+                option.text = label;
+                option.dataset.type = cameraType;
+                elements.cameraSelect.appendChild(option);
+            });
+            
+            // 預設選擇後置鏡頭
+            const backCamera = Array.from(elements.cameraSelect.options).find(
+                opt => opt.dataset.type === 'back'
+            );
+            
+            if (backCamera) {
+                elements.cameraSelect.value = backCamera.value;
+                selectedCameraId = backCamera.value;
+                currentCameraIndex = Array.from(elements.cameraSelect.options).indexOf(backCamera);
+            } else if (availableCameras.length > 0) {
+                elements.cameraSelect.value = availableCameras[0].id;
+                selectedCameraId = availableCameras[0].id;
+                currentCameraIndex = 0;
+            }
+            
+            // 更新相機切換按鈕顯示
+            if (availableCameras.length > 1) {
+                elements.cameraSwitchBtn.style.display = 'flex';
+            }
+            
+            // 監聽相機選擇變化
+            elements.cameraSelect.addEventListener('change', function() {
+                selectedCameraId = this.value;
+                currentCameraIndex = Array.from(this.options).findIndex(opt => opt.value === this.value);
+                
+                if (isScanning) {
+                    stopScanning();
+                    setTimeout(() => {
+                        startScanning(currentScanning);
+                    }, 500);
+                }
+            });
+        }
+        
+        // 切換相機
+        function switchCamera() {
+            if (availableCameras.length < 2) return;
+            
+            currentCameraIndex = (currentCameraIndex + 1) % availableCameras.length;
+            selectedCameraId = availableCameras[currentCameraIndex].id;
+            elements.cameraSelect.value = selectedCameraId;
+            
+            if (isScanning) {
+                stopScanning();
+                setTimeout(() => {
+                    startScanning(currentScanning);
+                }, 500);
+            }
+        }
+        
+        // 更新狀態訊息
+        function updateStatus(message, type = 'waiting') {
+            elements.statusMsg.textContent = message;
+            elements.statusMsg.className = `status-message status-${type}`;
+            
+            // 更新掃描提示
+            if (type === 'scanning') {
+                elements.scanHint.textContent = "將條碼對準掃描框，保持穩定";
+            } else {
+                elements.scanHint.textContent = "將條碼置於框內，保持穩定";
+            }
+        }
+        
+        // 顯示錯誤
+        function showError(message) {
+            updateStatus("❌ " + message, 'error');
+        }
+        
+        // 播放音效
+        function playBeep(type = 'success') {
+            try {
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                
+                if (type === 'success') {
+                    oscillator.frequency.value = 800;
+                } else {
+                    oscillator.frequency.value = 400;
+                }
+                
+                oscillator.type = 'sine';
+                gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
+                
+                oscillator.start(audioContext.currentTime);
+                oscillator.stop(audioContext.currentTime + 0.2);
+            } catch (e) {
+                // 音效失敗時忽略
+            }
+        }
+        
+        // 振動反饋
+        function vibrate(type = 'short') {
+            if (navigator.vibrate) {
+                if (type === 'success') {
+                    navigator.vibrate([100, 50, 100]);
+                } else if (type === 'error') {
+                    navigator.vibrate([200]);
+                } else {
+                    navigator.vibrate(100);
+                }
+            }
+        }
+        
+        // 開始掃描
+        async function startScanning(scanNumber) {
+            // 如果正在掃描，先停止
+            if (isScanning) {
+                stopScanning();
+                await new Promise(resolve => setTimeout(resolve, 300));
+            }
+            
+            currentScanning = scanNumber;
+            
+            // 檢查相機權限
+            if (!cameraPermissionGranted) {
+                const hasPermission = await checkCameraPermission();
+                if (!hasPermission) {
+                    elements.permissionPrompt.classList.remove('hidden');
+                    return;
+                }
+            }
+            
+            // 如果沒有相機列表，先獲取
+            if (availableCameras.length === 0) {
+                const success = await getCameraList();
+                if (!success) {
+                    elements.permissionPrompt.classList.remove('hidden');
+                    return;
+                }
+            }
+            
+            // 檢查是否有選擇相機
+            if (!selectedCameraId && availableCameras.length > 0) {
+                selectedCameraId = availableCameras[0].id;
+                elements.cameraSelect.value = selectedCameraId;
+            }
+            
+            if (!selectedCameraId) {
+                showError("請先選擇相機鏡頭");
+                return;
+            }
+            
+            try {
+                elements.loader.textContent = "正在啟動相機...";
+                elements.loader.classList.remove('hidden');
+                elements.permissionPrompt.classList.add('hidden');
+                
+                // 停止之前的掃描器
+                if (html5QrcodeScanner && html5QrcodeScanner.isScanning) {
+                    try {
+                        await html5QrcodeScanner.stop();
+                    } catch (e) {
+                        console.log("停止先前掃描器時發生錯誤:", e);
+                    }
+                }
+                
+                // 創建新的掃描器
+                html5QrcodeScanner = new Html5Qrcode("reader");
+                
+                // 啟動掃描
+                await html5QrcodeScanner.start(
+                    selectedCameraId,
+                    {
+                        fps: 10,
+                        qrbox: { width: 250, height: 100 },
+                        aspectRatio: 1.0,
+                        disableFlip: true
+                    },
+                    (decodedText) => {
+                        onScanSuccess(decodedText, scanNumber);
+                    },
+                    (errorMessage) => {
+                        // 忽略掃描過程中的一般錯誤
+                        console.log("掃描錯誤:", errorMessage);
+                    }
+                );
+                
+                isScanning = true;
+                elements.loader.classList.add('hidden');
+                
+                // 更新UI狀態
+                if (scanNumber === 1) {
+                    updateStatus("正在掃描第一個條碼... 請將條碼對準掃描框", 'scanning');
+                    elements.display1.classList.add('active');
+                    elements.scanBtn1.innerHTML = '<span>停止掃描</span>';
+                    elements.scanBtn2.disabled = true;
+                    elements.status1.textContent = "掃描中...";
+                } else if (scanNumber === 2) {
+                    updateStatus("正在掃描第二個條碼... 請將條碼對準掃描框", 'scanning');
+                    elements.display2.classList.add('active');
+                    elements.scanBtn2.innerHTML = '<span>停止掃描</span>';
+                    elements.scanBtn1.disabled = true;
+                    elements.status2.textContent = "掃描中...";
+                }
+                
+            } catch (error) {
+                console.error("啟動掃描失敗:", error);
+                elements.loader.classList.add('hidden');
+                
+                if (error.message.includes('NotAllowedError') || error.message.includes('權限')) {
+                    cameraPermissionGranted = false;
+                    elements.permissionPrompt.classList.remove('hidden');
+                    showError("相機權限被拒絕，請允許相機存取");
+                } else if (error.message.includes('NotFoundError')) {
+                    showError("找不到指定的相機，請選擇其他鏡頭");
+                } else {
+                    showError("啟動掃描失敗: " + error.message);
+                }
+            }
+        }
+        
+        // 掃描成功回調
+        function onScanSuccess(decodedText, scanNumber) {
+            // 清理條碼內容（移除 Code 39 的星號）
+            let cleanText = decodedText.replace(/^\*|\*$/g, "").trim();
+            
+            // 驗證 Code 39 格式
+            if (!isValidCode39(cleanText)) {
+                showError("掃描到非 Code 39 格式，請重試");
+                playBeep('error');
+                vibrate('error');
+                return;
+            }
+            
+            // 停止掃描
+            stopScanning();
+            
+            // 播放成功音效和振動
+            playBeep('success');
+            vibrate('success');
+            
+            // 儲存條碼並更新UI
+            if (scanNumber === 1) {
+                code1 = cleanText;
+                elements.code1.textContent = code1;
+                elements.code1.classList.remove('code-placeholder');
+                elements.display1.classList.remove('active');
+                elements.display1.classList.add('success');
+                elements.hint1.textContent = `掃描時間: ${new Date().toLocaleTimeString()}`;
+                elements.status1.textContent = "✓ 已掃描";
+                
+                updateStatus("✅ 第一個條碼掃描成功！請檢查內容是否正確", 'success');
+                
+                // 啟用第二個掃描按鈕
+                elements.scanBtn2.disabled = false;
+                elements.scanBtn2.innerHTML = '<span>掃描第二個條碼</span>';
+                elements.scanBtn1.innerHTML = '<span>重新掃描第一個</span>';
+                
+            } else if (scanNumber === 2) {
+                code2 = cleanText;
+                elements.code2.textContent = code2;
+                elements.code2.classList.remove('code-placeholder');
+                elements.display2.classList.remove('active');
+                elements.display2.classList.add('success');
+                elements.hint2.textContent = `掃描時間: ${new Date().toLocaleTimeString()}`;
+                elements.status2.textContent = "✓ 已掃描";
+                
+                updateStatus("✅ 第二個條碼掃描成功！", 'success');
+                
+                // 進行比對
+                setTimeout(() => {
+                    compareCodes();
+                }, 500);
+            }
+            
+            elements.resetBtn.disabled = false;
+        }
+        
+        // 驗證 Code 39 格式
+        function isValidCode39(text) {
+            if (!text || text.length === 0) return false;
+            
+            // Code 39 允許的字元：A-Z, 0-9, -, ., $, /, +, %, 空格
+            const code39Regex = /^[A-Z0-9\-\.\ \$\+\/%]+$/;
+            return code39Regex.test(text) && text.length <= 43;
+        }
+        
+        // 停止掃描
+        async function stopScanning() {
+            if (html5QrcodeScanner && isScanning) {
+                try {
+                    await html5QrcodeScanner.stop();
+                } catch (error) {
+                    console.warn("停止掃描時發生錯誤:", error);
+                }
+                isScanning = false;
+                
+                // 重置按鈕文字
+                if (currentScanning === 1) {
+                    elements.scanBtn1.innerHTML = code1 ? '<span>重新掃描第一個</span>' : '<span>掃描第一個條碼</span>';
+                    elements.display1.classList.remove('active');
+                    elements.status1.textContent = code1 ? "✓ 已掃描" : "等待掃描";
+                } else if (currentScanning === 2) {
+                    elements.scanBtn2.innerHTML = code2 ? '<span>重新掃描第二個</span>' : '<span>掃描第二個條碼</span>';
+                    elements.display2.classList.remove('active');
+                    elements.status2.textContent = code2 ? "✓ 已掃描" : "等待掃描";
+                }
+            }
+        }
+        
+        // 比對條碼
+        function compareCodes() {
+            // 顯示比對結果區域
+            elements.resultDisplay.style.display = 'block';
+            
+            if (code1 === code2) {
+                elements.resultText.textContent = "🎉 比對成功！兩個條碼內容完全一致";
+                elements.resultHint.textContent = "條碼內容相符，驗證通過";
+                elements.resultDisplay.className = "code-display success";
+                updateStatus("✅ 比對成功！條碼內容一致", 'success');
+                
+                // 播放特別的成功音效
+                try {
+                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    const oscillator = audioContext.createOscillator();
+                    const gainNode = audioContext.createGain();
+                    
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioContext.destination);
+                    
+                    oscillator.frequency.setValueAtTime(523.25, audioContext.currentTime);
+                    oscillator.frequency.setValueAtTime(659.25, audioContext.currentTime + 0.1);
+                    oscillator.frequency.setValueAtTime(783.99, audioContext.currentTime + 0.2);
+                    
+                    oscillator.type = 'sine';
+                    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+                    
+                    oscillator.start(audioContext.currentTime);
+                    oscillator.stop(audioContext.currentTime + 0.5);
+                } catch (e) {}
+                
+            } else {
+                elements.resultText.textContent = "❌ 比對失敗！條碼內容不一致";
+                elements.resultHint.textContent = `第一個: "${code1}" ≠ 第二個: "${code2}"`;
+                elements.resultDisplay.className = "code-display error";
+                updateStatus("❌ 比對失敗！條碼內容不同", 'error');
+                
+                // 標記不一致的條碼
+                elements.display1.classList.remove('success');
+                elements.display1.classList.add('error');
+                elements.display2.classList.remove('success');
+                elements.display2.classList.add('error');
+            }
+            
+            // 禁用掃描按鈕，啟用重新開始
+            elements.scanBtn1.disabled = true;
+            elements.scanBtn2.disabled = true;
+        }
+        
+        // 重置應用
+        function resetApp() {
+            // 停止掃描
+            stopScanning();
+            
+            // 重置變數
+            code1 = "";
+            code2 = "";
+            currentScanning = 0;
+            
+            // 重置UI
+            elements.code1.textContent = "";
+            elements.code1.classList.add('code-placeholder');
+            elements.code1.textContent = elements.code1.getAttribute('data-placeholder');
+            elements.code2.textContent = "";
+            elements.code2.classList.add('code-placeholder');
+            elements.code2.textContent = elements.code2.getAttribute('data-placeholder');
+            
+            elements.display1.className = "code-display";
+            elements.display2.className = "code-display";
+            elements.resultDisplay.style.display = 'none';
+            
+            elements.hint1.textContent = "請先掃描第一個條碼";
+            elements.hint2.textContent = "請先完成第一個條碼掃描";
+            elements.status1.textContent = "等待掃描";
+            elements.status2.textContent = "等待掃描";
+            
+            updateStatus("請點擊「掃描第一個條碼」開始", 'waiting');
+            
+            // 重置按鈕狀態
+            elements.scanBtn1.innerHTML = '<span>掃描第一個條碼</span>';
+            elements.scanBtn2.innerHTML = '<span>掃描第二個條碼</span>';
+            elements.scanBtn1.disabled = false;
+            elements.scanBtn2.disabled = true;
+            elements.resetBtn.disabled = true;
+        }
+        
+        // 初始化應用
+        async function initializeApp() {
+            // 設置初始狀態
+            elements.code1.textContent = elements.code1.getAttribute('data-placeholder');
+            elements.code2.textContent = elements.code2.getAttribute('data-placeholder');
+            
+            // 檢查相機權限
+            const hasPermission = await checkCameraPermission();
+            
+            if (hasPermission) {
+                // 有權限，嘗試獲取相機列表
+                await getCameraList();
+            } else {
+                // 沒有權限，顯示提示
+                elements.permissionPrompt.classList.remove('hidden');
+            }
+            
+            // 提示用戶如何開始
+            updateStatus("請點擊「掃描第一個條碼」開始", 'waiting');
+        }
+        // 頁面載入時初始化
+        document.addEventListener('DOMContentLoaded', initializeApp);
+    </script>
+</body>
+</html>
