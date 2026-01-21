@@ -102,13 +102,15 @@
             html5QrcodeScanner.resume();
         }
 
-        // 初始化掃描器，增加格式支援
-        const html5QrcodeScanner = new Html5QrcodeScanner("reader", { 
+        // 初始化掃描器，增加格式支援        const html5QrcodeScanner = new Html5QrcodeScanner("reader", { 
             fps: 15, 
             qrbox: { width: 250, height: 150 },
             aspectRatio: 1.0,
             rememberLastUsedCamera: true,
-            // 2026 建議明確支援常用一維與二維條碼
+            // 關鍵修改：強制要求後置鏡頭 (environment)
+            videoConstraints: {
+                facingMode: { exact: "environment" }
+            },
             formatsToSupport: [ 
                 Html5QrcodeSupportedFormats.QR_CODE,
                 Html5QrcodeSupportedFormats.EAN_13,
@@ -116,7 +118,15 @@
                 Html5QrcodeSupportedFormats.CODE_39 
             ]
         });
-        html5QrcodeScanner.render(onScanSuccess);
+        
+        // 成功渲染
+        html5QrcodeScanner.render(onScanSuccess, onScanFailure);
+
+        // 增加一個選配的錯誤回饋，避免鏡頭啟動失敗沒反應
+        function onScanFailure(error) {
+            // 掃描失敗通常不處理，避免頻繁報錯
+        }
     </script>
 </body>
 </html>
+
